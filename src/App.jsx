@@ -35,7 +35,9 @@ const App = () => {
         !previousSymptoms.includes(symptom)
     );
 
-    return availableSymptoms.slice(0, 15);
+    if (availableSymptoms.length === 0) setShowForm(true)
+
+      return availableSymptoms.slice(0, 15);
   };
 
   const handleSymptomSelect = (symptom) => {
