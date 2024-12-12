@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { diseases } from "./diseases"; // Importing diseases data from diseases.js
+import axios from 'axios'
+
+const backend = import.meta.env.VITE_BACKEND_URL
 
 const App = () => {
   const [step, setStep] = useState(0); // Track current question
@@ -7,33 +10,34 @@ const App = () => {
   const [currentStepSymptoms, setCurrentStepSymptoms] = useState([]); // Track symptoms for the current step
   const [filteredDiseases, setFilteredDiseases] = useState(diseases); // Filtered diseases after each step
   const [results, setResults] = useState(null); // Store the final results
+  const [previousSymptoms, setPreviousSymptoms] = useState([]); // Track previously shown symptoms
+  const [showForm, setShowForm] = useState(false); // Show form before results
+  const [userData, setUserData] = useState({ name: "", email: "", phone: "" }); // Form data
+  const [formError, setFormError] = useState(""); // Track form errors
 
-  // Define the questions that the user will answer
   const questions = [
     "Do you experience any of these common symptoms?",
     "Do you also experience any of these more specific symptoms?",
     "Are you noticing these symptoms?",
     "Any of these uncommon symptoms?",
-    "Finally, do you have these rare symptoms?"
+    "Finally, do you have these rare symptoms?",
   ];
 
-  // Get a list of symptoms based on the filtered diseases
   const getSymptoms = () => {
     const symptomsSet = new Set();
     filteredDiseases.forEach((disease) => {
       disease.symptoms.forEach((symptom) => symptomsSet.add(symptom));
     });
 
-    // Exclude symptoms that are already selected
     const availableSymptoms = Array.from(symptomsSet).filter(
-      (symptom) => !selectedSymptoms.includes(symptom)
+      (symptom) =>
+        !selectedSymptoms.includes(symptom) &&
+        !previousSymptoms.includes(symptom)
     );
 
-    // Limit to 5-7 symptoms for each question
     return availableSymptoms.slice(0, 15);
   };
 
-  // Handle symptom selection for the current step
   const handleSymptomSelect = (symptom) => {
     setCurrentStepSymptoms((prev) =>
       prev.includes(symptom)
@@ -42,13 +46,11 @@ const App = () => {
     );
   };
 
-  // Move to the next question and filter diseases based on selected symptoms
   const nextStep = () => {
-    // After the first step, update selectedSymptoms with the symptoms from currentStepSymptoms
     setSelectedSymptoms((prev) => [...prev, ...currentStepSymptoms]);
-    setCurrentStepSymptoms([]); // Clear current step symptoms
+    setCurrentStepSymptoms([]);
+    setPreviousSymptoms((prev) => [...prev, ...getSymptoms()]);
 
-    // Filter diseases based on the selected symptoms after each step
     const newFiltered = filteredDiseases.filter((disease) =>
       [...selectedSymptoms, ...currentStepSymptoms].some((symptom) =>
         disease.symptoms.includes(symptom)
@@ -57,13 +59,17 @@ const App = () => {
     setFilteredDiseases(newFiltered);
 
     if (step < questions.length - 1) {
-      setStep(step + 1); // Go to next question
+      setStep(step + 1);
     } else {
-      calculateResults(newFiltered); // Calculate final results after the last question
+      setShowForm(true); // Show form instead of results after the last question
     }
   };
 
-  // Calculate results (diseases ranked by probability)
+  const refreshSymptoms = () => {
+    setPreviousSymptoms((prev) => [...prev, ...getSymptoms()]);
+    setCurrentStepSymptoms([]);
+  };
+
   const calculateResults = (filtered) => {
     const results = filtered.map((disease) => ({
       name: disease.disease,
@@ -75,8 +81,91 @@ const App = () => {
         100
       ).toFixed(2),
     }));
-    setResults(results.sort((a, b) => b.probability - a.probability)); // Sort diseases by probability
+    setResults(results.sort((a, b) => b.probability - a.probability));
   };
+
+  const handleFormSubmit = async (e) => {
+    e.preventDefault()
+    try {
+      // Simple validation
+      if (!userData.name || !userData.email || !userData.phone) {
+        setFormError("All fields are required!");
+        return;
+      }
+
+      // Validate email format
+      if (!/\S+@\S+\.\S+/.test(userData.email)) {
+        setFormError("Invalid email format!");
+        return;
+      }
+
+      // Validate phone number
+      if (!/^\d{10}$/.test(userData.phone)) {
+        setFormError("Phone number must be 10 digits!");
+        return;
+      }
+      const response = await axios.post(`${backend}/api/v1/users/create-user`, userData)
+      if (response.status === 200) {
+        setFormError(""); // Clear errors if validation passes
+        calculateResults(filteredDiseases); // Calculate results 
+      }
+    } catch (error) {
+      console.log("Error while storing user", error);
+    }
+  };
+
+  if (showForm && !results) {
+    return (
+      <div className="p-4">
+        <h1 className="text-2xl font-bold">Provide Your Information</h1>
+        <p className="text-gray-600">
+          Please fill out the form below to view your results.
+        </p>
+        <form className="mt-4" onSubmit={handleFormSubmit}>
+          <div className="mb-4">
+            <label className="block text-sm font-bold mb-2">Name</label>
+            <input
+              type="text"
+              className="w-full p-2 border rounded"
+              value={userData.name}
+              onChange={(e) =>
+                setUserData({ ...userData, name: e.target.value })
+              }
+            />
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-bold mb-2">Email</label>
+            <input
+              type="email"
+              className="w-full p-2 border rounded"
+              value={userData.email}
+              onChange={(e) =>
+                setUserData({ ...userData, email: e.target.value })
+              }
+            />
+          </div>
+          <div className="mb-4">
+            <label className="block text-sm font-bold mb-2">Phone</label>
+            <input
+              type="text"
+              className="w-full p-2 border rounded"
+              value={userData.phone}
+              onChange={(e) =>
+                setUserData({ ...userData, phone: e.target.value })
+              }
+            />
+          </div>
+          {formError && <p className="text-red-500">{formError}</p>}
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-500 text-white rounded"
+          >
+            View Your Result
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   if (results) {
     return (
@@ -119,11 +208,10 @@ const App = () => {
             {getSymptoms().map((symptom, index) => (
               <button
                 key={index}
-                className={`px-4 py-2 m-2 rounded ${
-                  currentStepSymptoms.includes(symptom)
-                    ? "bg-green-500 text-white"
-                    : "bg-gray-200"
-                }`}
+                className={`px-4 py-2 m-2 rounded ${currentStepSymptoms.includes(symptom)
+                  ? "bg-green-500 text-white"
+                  : "bg-gray-200"
+                  }`}
                 onClick={() => handleSymptomSelect(symptom)}
               >
                 {symptom}
@@ -137,6 +225,12 @@ const App = () => {
           >
             Next
           </button>
+          <button
+            className="mt-4 px-4 py-2 bg-green-500 ml-5 text-white rounded"
+            onClick={refreshSymptoms}
+          >
+            None of the Above
+          </button>
         </div>
       )}
     </div>
@@ -144,4 +238,3 @@ const App = () => {
 };
 
 export default App;
-
